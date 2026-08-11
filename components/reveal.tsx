@@ -22,10 +22,11 @@ export function Reveal({
   ...props
 }: RevealProps) {
   const { ref, visible } = useReveal<HTMLDivElement>();
+  const Component = Tag as React.ElementType;
 
   return (
-    <Tag
-      ref={ref as React.Ref<HTMLDivElement>}
+    <Component
+      ref={ref}
       className={cn(
         "transition-all duration-700 ease-out will-change-transform motion-reduce:transition-none",
         visible ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0",
@@ -35,6 +36,6 @@ export function Reveal({
       {...props}
     >
       {children}
-    </Tag>
+    </Component>
   );
 }
