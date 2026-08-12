@@ -2,18 +2,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, Plus, X } from "lucide-react";
+import { Check, X, Search, Loader2 } from "lucide-react";
 import type { CasinoApp } from "@/types";
 import { AppLogo } from "@/components/app-logo";
 import { RatingStars } from "@/components/rating-stars";
 import { CTAButton } from "@/components/cta-button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { formatCompact } from "@/utils/format";
 import { cn } from "@/lib/utils";
 
 const MAX = 3;
@@ -21,31 +17,28 @@ const MAX = 3;
 /**
  * Interactive comparison for the Compare page. Users pick up to three apps and
  * see their headline metrics side by side; rows highlight the best value.
+ *
+ * Apps to add are searched live across the WHOLE database via `/api/search`, so
+ * every row is backed by real Google-Play data (no synthetic bonus/wagering
+ * fields). Initial apps are resolved server-side from the `?apps=` slugs.
  */
-export function CompareTool({
-  apps,
-  initialSlugs = [],
-}: {
-  apps: CasinoApp[];
-  initialSlugs?: string[];
-}) {
-  const bySlug = React.useMemo(
-    () => new Map(apps.map((a) => [a.slug, a])),
-    [apps]
+export function CompareTool({ initialApps }: { initialApps: CasinoApp[] }) {
+  // A growing cache of every app we've seen (seeded + added from search).
+  const [known, setKnown] = React.useState<Map<string, CasinoApp>>(
+    () => new Map(initialApps.map((a) => [a.slug, a]))
+  );
+  const [selected, setSelected] = React.useState<string[]>(() =>
+    initialApps.slice(0, MAX).map((a) => a.slug)
   );
 
-  const [selected, setSelected] = React.useState<string[]>(() => {
-    const valid = initialSlugs.filter((s) => bySlug.has(s)).slice(0, MAX);
-    if (valid.length) return valid;
-    return apps.slice(0, 2).map((a) => a.slug);
-  });
-
-  const chosen = selected.map((s) => bySlug.get(s)!).filter(Boolean);
+  const chosen = selected.map((s) => known.get(s)).filter((a): a is CasinoApp => Boolean(a));
   const canAdd = selected.length < MAX;
-  const remaining = apps.filter((a) => !selected.includes(a.slug));
 
-  function addApp(slug: string) {
-    if (slug && canAdd) setSelected((prev) => [...prev, slug]);
+  function addApp(app: CasinoApp) {
+    setKnown((prev) => (prev.has(app.slug) ? prev : new Map(prev).set(app.slug, app)));
+    setSelected((prev) =>
+      prev.includes(app.slug) || prev.length >= MAX ? prev : [...prev, app.slug]
+    );
   }
   function removeApp(slug: string) {
     setSelected((prev) => prev.filter((s) => s !== slug));
@@ -53,8 +46,7 @@ export function CompareTool({
 
   const bestTrust = Math.max(...chosen.map((a) => a.trustScore), 0);
   const bestRating = Math.max(...chosen.map((a) => a.rating), 0);
-  const cheapest = Math.min(...chosen.map((a) => a.minDeposit));
-  const mostGames = Math.max(...chosen.map((a) => a.gamesCount), 0);
+  const mostReviews = Math.max(...chosen.map((a) => a.reviewsCount), 0);
 
   const rows: {
     label: string;
@@ -71,25 +63,18 @@ export function CompareTool({
       render: (a) => <span className="font-semibold tabular-nums">{a.trustScore}/100</span>,
       best: (a) => a.trustScore === bestTrust,
     },
-    { label: "Welcome bonus", render: (a) => a.bonus.headline },
-    { label: "Wagering", render: (a) => a.bonus.wagering },
     {
-      label: "Min deposit",
-      render: (a) => `$${a.minDeposit}`,
-      best: (a) => a.minDeposit === cheapest,
+      label: "Reviews",
+      render: (a) => formatCompact(a.reviewsCount),
+      best: (a) => a.reviewsCount === mostReviews && mostReviews > 0,
     },
-    { label: "Payout time", render: (a) => a.payoutTime },
-    {
-      label: "Games",
-      render: (a) => a.gamesCount.toLocaleString(),
-      best: (a) => a.gamesCount === mostGames,
-    },
-    { label: "Licenses", render: (a) => a.license.join(", ") },
+    { label: "Installs", render: (a) => a.installs || "—" },
+    { label: "Category", render: (a) => a.categories.map((c) => c.name).join(", ") || "—" },
+    { label: "Content rating", render: (a) => a.contentRating || "—" },
+    { label: "Developer", render: (a) => a.operator },
+    { label: "Version", render: (a) => a.version || "—" },
+    { label: "Established", render: (a) => (a.established ? String(a.established) : "—") },
     { label: "Platforms", render: (a) => a.platforms.join(", ") },
-    {
-      label: "Established",
-      render: (a) => String(a.established),
-    },
   ];
 
   return (
@@ -100,7 +85,7 @@ export function CompareTool({
             key={a.slug}
             className="inline-flex items-center gap-2 rounded-full border border-border bg-card py-1 pl-1.5 pr-3 text-sm"
           >
-            <AppLogo seed={a.logoSeed} monogram={a.monogram} size={24} rounded="rounded-lg" />
+            <AppLogo seed={a.logoSeed} monogram={a.monogram} src={a.logoUrl} alt={a.name} size={24} rounded="rounded-lg" />
             {a.name}
             <button
               onClick={() => removeApp(a.slug)}
@@ -112,29 +97,13 @@ export function CompareTool({
           </span>
         ))}
         {canAdd && (
-          <div className="w-[220px]">
-            <Select value="" onValueChange={addApp}>
-              <SelectTrigger className="h-9">
-                <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <Plus className="h-4 w-4" />
-                  Add app to compare
-                </span>
-              </SelectTrigger>
-              <SelectContent>
-                {remaining.map((a) => (
-                  <SelectItem key={a.slug} value={a.slug}>
-                    {a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <CompareAddSearch excludeSlugs={selected} onAdd={addApp} />
         )}
       </div>
 
       {chosen.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border p-12 text-center text-muted-foreground">
-          Add an app to start comparing.
+          Search for an app above to start comparing.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-border">
@@ -147,7 +116,7 @@ export function CompareTool({
                 {chosen.map((a) => (
                   <th key={a.slug} className="min-w-[200px] p-4 text-left align-bottom">
                     <div className="flex flex-col gap-2">
-                      <AppLogo seed={a.logoSeed} monogram={a.monogram} size={40} />
+                      <AppLogo seed={a.logoSeed} monogram={a.monogram} src={a.logoUrl} alt={a.name} size={40} />
                       <Link
                         href={`/reviews/${a.slug}`}
                         className="font-display text-base font-semibold hover:text-primary"
@@ -196,6 +165,100 @@ export function CompareTool({
               </tr>
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Debounced, whole-database app picker backed by `/api/search`. */
+function CompareAddSearch({
+  excludeSlugs,
+  onAdd,
+}: {
+  excludeSlugs: string[];
+  onAdd: (app: CasinoApp) => void;
+}) {
+  const [q, setQ] = React.useState("");
+  const dq = useDebouncedValue(q, 250);
+  const [results, setResults] = React.useState<CasinoApp[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const abortRef = React.useRef<AbortController | null>(null);
+
+  React.useEffect(() => {
+    const term = dq.trim();
+    if (!term) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+    fetch(`/api/search?q=${encodeURIComponent(term)}&limit=8`, {
+      signal: controller.signal,
+      headers: { accept: "application/json" },
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((body) => setResults(Array.isArray(body?.data) ? body.data : []))
+      .catch((e) => {
+        if ((e as Error).name !== "AbortError") setResults([]);
+      })
+      .finally(() => {
+        if (abortRef.current === controller) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [dq]);
+
+  const visible = results.filter((a) => !excludeSlugs.includes(a.slug));
+
+  return (
+    <div className="relative w-[260px]">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="Search apps to add…"
+          className="h-9 pl-9"
+        />
+        {loading && (
+          <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+        )}
+      </div>
+      {open && q.trim() && (
+        <div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
+          {visible.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">
+              {loading ? "Searching…" : "No apps found"}
+            </p>
+          ) : (
+            visible.map((a) => (
+              <button
+                key={a.slug}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onAdd(a);
+                  setQ("");
+                  setOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted"
+              >
+                <AppLogo seed={a.logoSeed} monogram={a.monogram} src={a.logoUrl} alt={a.name} size={24} rounded="rounded-lg" />
+                <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {a.rating.toFixed(1)}★
+                </span>
+              </button>
+            ))
+          )}
         </div>
       )}
     </div>

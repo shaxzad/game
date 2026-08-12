@@ -3,8 +3,7 @@
 import * as React from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { SlidersHorizontal, X } from "lucide-react";
-import type { CasinoApp, Category, AppSortKey } from "@/types";
-import { AppCard } from "@/components/app-card";
+import type { CasinoApp, Category } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -15,24 +14,47 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SORT_LABELS, sortApps } from "@/utils/sort";
+import { AppGridInfinite } from "@/components/app-grid-infinite";
+import { useInfiniteApps } from "@/hooks/use-infinite-apps";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { cn } from "@/lib/utils";
 
-const PLATFORMS = ["iOS", "Android", "Web", "Windows"] as const;
-const SORTS: AppSortKey[] = ["trust", "rating", "newest", "bonus", "payout", "name"];
+/** Apps fetched per page as the user scrolls. */
+const PAGE_SIZE = 24;
 
 /**
- * Client-side explorer for the Casino Apps page. Filters an already-fetched
- * (server) list of apps by search, category, platform and min-trust, and keeps
- * the active category in the URL so category links deep-link correctly.
+ * Sort options exposed in the UI, each mapped to the real `/api/apps`
+ * sort field + order. Every one is backed by live data — no synthetic
+ * bonus/payout sorts (Google Play provides no such fields).
+ */
+type SortOption = {
+  value: string;
+  label: string;
+  field: "rating" | "reviews" | "updated" | "name";
+  order: "asc" | "desc";
+};
+
+const SORT_OPTIONS: SortOption[] = [
+  { value: "rating", label: "Top rated", field: "rating", order: "desc" },
+  { value: "reviews", label: "Most reviewed", field: "reviews", order: "desc" },
+  { value: "newest", label: "Recently updated", field: "updated", order: "desc" },
+  { value: "name", label: "Name (A–Z)", field: "name", order: "asc" },
+];
+
+/**
+ * Casino Apps explorer. Filters (search, category, min-trust) and sort all run
+ * SERVER-SIDE against the whole database via `/api/apps`; results stream in with
+ * infinite scroll. Page 1 is seeded from the server render (`initialApps`) so
+ * the first paint is instant and SEO-visible.
  */
 export function AppsExplorer({
-  apps,
+  initialApps,
+  initialTotal,
   categories,
   initialCategory,
 }: {
-  apps: CasinoApp[];
+  initialApps: CasinoApp[];
+  initialTotal: number;
   categories: Category[];
   initialCategory?: string;
 }) {
@@ -41,11 +63,10 @@ export function AppsExplorer({
   const searchParams = useSearchParams();
 
   const [search, setSearch] = React.useState("");
-  const debouncedSearch = useDebouncedValue(search, 200);
+  const debouncedSearch = useDebouncedValue(search, 250);
   const [category, setCategory] = React.useState(initialCategory ?? "all");
-  const [platform, setPlatform] = React.useState<string>("all");
   const [minTrust, setMinTrust] = React.useState(0);
-  const [sort, setSort] = React.useState<AppSortKey>("trust");
+  const [sort, setSort] = React.useState<string>("rating");
 
   // Reflect category changes in the URL (shareable / back-button friendly).
   React.useEffect(() => {
@@ -57,38 +78,40 @@ export function AppsExplorer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category]);
 
-  const filtered = React.useMemo(() => {
-    let list = apps.filter((app) => {
-      if (category !== "all" && !app.categories.some((c) => c.slug === category))
-        return false;
-      if (platform !== "all" && !app.platforms.includes(platform as CasinoApp["platforms"][number]))
-        return false;
-      if (app.trustScore < minTrust) return false;
-      if (debouncedSearch) {
-        const q = debouncedSearch.toLowerCase();
-        const hay = `${app.name} ${app.tagline} ${app.categories
-          .map((c) => c.name)
-          .join(" ")}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
+  // Translate the UI filters into `/api/apps` query params. A new object each
+  // render is fine — the hook keys off a serialised snapshot.
+  const params = React.useMemo(() => {
+    const opt = SORT_OPTIONS.find((o) => o.value === sort) ?? SORT_OPTIONS[0];
+    return {
+      search: debouncedSearch.trim() || undefined,
+      category: category !== "all" ? category : undefined,
+      // UI trust is 0–100; the API's minScore is 0–5 (trust = score / 5 * 100).
+      minScore: minTrust > 0 ? minTrust / 20 : undefined,
+      sort: opt.field,
+      order: opt.order,
+    };
+  }, [debouncedSearch, category, minTrust, sort]);
+
+  const { items, total, hasMore, isLoading, isLoadingMore, error, loadMore, reload } =
+    useInfiniteApps({
+      endpoint: "/api/apps",
+      params,
+      pageSize: PAGE_SIZE,
+      initialItems: initialApps,
+      initialTotal,
     });
-    return sortApps(list, sort);
-  }, [apps, category, platform, minTrust, debouncedSearch, sort]);
 
   const activeFilters =
-    (category !== "all" ? 1 : 0) +
-    (platform !== "all" ? 1 : 0) +
-    (minTrust > 0 ? 1 : 0) +
-    (search ? 1 : 0);
+    (category !== "all" ? 1 : 0) + (minTrust > 0 ? 1 : 0) + (search ? 1 : 0);
 
   function reset() {
     setSearch("");
     setCategory("all");
-    setPlatform("all");
     setMinTrust(0);
-    setSort("trust");
+    setSort("rating");
   }
+
+  const activeCategoryName = categories.find((c) => c.slug === category)?.name;
 
   return (
     <div className="grid gap-8 lg:grid-cols-[260px_1fr]">
@@ -140,20 +163,6 @@ export function AppsExplorer({
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground">Platform</label>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <FilterPill active={platform === "all"} onClick={() => setPlatform("all")}>
-                  Any
-                </FilterPill>
-                {PLATFORMS.map((p) => (
-                  <FilterPill key={p} active={platform === p} onClick={() => setPlatform(p)}>
-                    {p}
-                  </FilterPill>
-                ))}
-              </div>
-            </div>
-
-            <div>
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-muted-foreground">
                   Min trust score
@@ -177,27 +186,27 @@ export function AppsExplorer({
       <div>
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
-            <span className="font-semibold text-foreground">{filtered.length}</span>{" "}
-            {filtered.length === 1 ? "app" : "apps"}
-            {category !== "all" && (
+            <span className="font-semibold text-foreground tabular-nums">{total}</span>{" "}
+            {total === 1 ? "app" : "apps"}
+            {category !== "all" && activeCategoryName && (
               <>
                 {" "}in{" "}
                 <Badge variant="secondary" className="ml-1">
-                  {categories.find((c) => c.slug === category)?.name}
+                  {activeCategoryName}
                 </Badge>
               </>
             )}
           </p>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Sort by</span>
-            <Select value={sort} onValueChange={(v) => setSort(v as AppSortKey)}>
-              <SelectTrigger className="h-9 w-[150px]">
+            <Select value={sort} onValueChange={setSort}>
+              <SelectTrigger className="h-9 w-[170px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SORTS.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {SORT_LABELS[s]}
+                {SORT_OPTIONS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -205,23 +214,26 @@ export function AppsExplorer({
           </div>
         </div>
 
-        {filtered.length > 0 ? (
-          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((app) => (
-              <AppCard key={app.id} app={app} />
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-border p-12 text-center">
-            <p className="font-display text-lg font-semibold">No apps match those filters</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Try widening your search or clearing a filter.
-            </p>
-            <Button onClick={reset} variant="outline" className="mt-4">
-              Clear filters
-            </Button>
-          </div>
-        )}
+        <AppGridInfinite
+          items={items}
+          hasMore={hasMore}
+          isLoading={isLoading}
+          isLoadingMore={isLoadingMore}
+          error={error}
+          onLoadMore={loadMore}
+          onRetry={reload}
+          emptyState={
+            <div className="rounded-2xl border border-dashed border-border p-12 text-center">
+              <p className="font-display text-lg font-semibold">No apps match those filters</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Try widening your search or clearing a filter.
+              </p>
+              <Button onClick={reset} variant="outline" className="mt-4">
+                Clear filters
+              </Button>
+            </div>
+          }
+        />
       </div>
     </div>
   );

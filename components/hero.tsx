@@ -81,7 +81,7 @@ export function Hero({
               <div className="mt-6 flex flex-col items-center text-center">
                 <TrustDial score={topPick.trustScore} size={150} />
                 <div className="mt-8 flex items-center gap-3">
-                  <AppLogo seed={topPick.logoSeed} monogram={topPick.monogram} size={44} />
+                  <AppLogo seed={topPick.logoSeed} monogram={topPick.monogram} src={topPick.logoUrl} alt={topPick.name} size={44} />
                   <div className="text-left">
                     <div className="font-display text-lg font-semibold leading-tight">
                       {topPick.name}

@@ -199,9 +199,78 @@ function deriveFaqs(doc: AppDoc, name: string, score: number, reviews: number): 
   return faqs;
 }
 
+/**
+ * Coerce a histogram bucket value into a plain number. MongoDB may hand back
+ * BSON numeric wrappers (Int32 / Long / Double / Decimal128) or, defensively,
+ * strings — `num()` alone rejects the non-`number` cases and would zero the
+ * whole distribution. `Number()` unwraps them via valueOf()/toString().
+ */
+function toCount(v: unknown): number {
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+  if (typeof v === "string") {
+    const n = Number(v.replace(/[^\d.-]/g, ""));
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (v != null && (typeof v === "object" || typeof v === "bigint")) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+/**
+ * Normalise the store histogram into a descending 5★→1★ distribution.
+ * The scraper may store it as an object ({ "1": n, … "5": n }) or an array
+ * ([1★, 2★, 3★, 4★, 5★]). Returns undefined when there is no usable data.
+ */
+function normalizeHistogram(
+  hist: AppDoc["histogram"],
+): { stars: number; count: number }[] | undefined {
+  if (!hist) return undefined;
+  const counts: Record<number, number> = {};
+  if (Array.isArray(hist)) {
+    hist.forEach((c, i) => {
+      counts[i + 1] = toCount(c);
+    });
+  } else {
+    for (const [k, v] of Object.entries(hist)) {
+      const star = Number(k);
+      if (star >= 1 && star <= 5) counts[star] = toCount(v);
+    }
+  }
+  const bars = [5, 4, 3, 2, 1].map((stars) => ({ stars, count: toCount(counts[stars]) }));
+  return bars.some((b) => b.count > 0) ? bars : undefined;
+}
+
+/** Real logo URL from the store icon, if it looks like an http(s) URL. */
+function logoUrlFrom(doc: AppDoc): string | undefined {
+  const icon = doc.icon?.trim();
+  return icon && /^https?:\/\//i.test(icon) ? icon : undefined;
+}
+
 function deriveScreenshots(doc: AppDoc): Screenshot[] {
-  const count = doc.screenshots?.length ? Math.min(doc.screenshots.length, 6) : 4;
-  return Array.from({ length: count }, (_, i) => ({
+  // Prefer the real Google-Play screenshot URLs. The scraper often stores
+  // duplicates, so dedupe (order-preserving) and cap the gallery.
+  const real = Array.isArray(doc.screenshots)
+    ? Array.from(
+        new Set(
+          doc.screenshots.filter(
+            (u): u is string => typeof u === "string" && u.trim() !== "",
+          ),
+        ),
+      )
+    : [];
+
+  if (real.length > 0) {
+    return real.slice(0, 8).map((url, i) => ({
+      seed: `${doc.packageName}-shot-${i}`,
+      caption: `Screenshot ${i + 1}`,
+      url,
+    }));
+  }
+
+  // No images on this document — fall back to deterministic gradient mocks.
+  return Array.from({ length: 4 }, (_, i) => ({
     seed: `${doc.packageName}-shot-${i}`,
     caption: `Screenshot ${i + 1}`,
   }));
@@ -244,12 +313,15 @@ export function appDocToCasinoApp(doc: AppDoc, full = false): CasinoApp {
     tagline: doc.summary?.trim() || paragraphs(doc.description, 1)[0] || `${name} on Google Play`,
     logoSeed: doc.packageName,
     monogram: monogramFrom(name),
+    logoUrl: logoUrlFrom(doc),
     established: yearFrom(doc),
     operator: doc.developer?.trim() || "Unknown developer",
+    developerWebsite: doc.developerWebsite?.trim() || undefined,
     license: [], // not available from Google Play data
     rating: score,
     trustScore,
     ratingBreakdown: breakdown,
+    ratingHistogram: full ? normalizeHistogram(doc.histogram) : undefined,
     reviewsCount: reviews,
     categories: doc.genre ? [{ slug: slugifyGenre(doc.genre), name: doc.genre }] : [],
     platforms: ["Android"],
@@ -257,6 +329,9 @@ export function appDocToCasinoApp(doc: AppDoc, full = false): CasinoApp {
     supportedCountries: [], // not available from Google Play data
     restrictedCountries: [],
     currencies: doc.currency ? [doc.currency] : [],
+    installs: installLabel(doc) || undefined,
+    contentRating: doc.contentRating?.trim() || undefined,
+    version: doc.version?.trim() || undefined,
     minDeposit: 0,
     payoutTime: "N/A",
     gamesCount: 0,

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ShieldCheck, Wallet, Gauge } from "lucide-react";
-import { getHomepageData, getApps } from "@/lib/api";
+import { getHomepageData } from "@/lib/api";
 import { Hero } from "@/components/hero";
 import { SectionHeader } from "@/components/section-header";
 import { AppCard } from "@/components/app-card";
@@ -12,19 +12,13 @@ import { Reveal } from "@/components/reveal";
 import { Marquee } from "@/components/marquee";
 
 export default async function HomePage() {
-  const { trending, topRated, featured, latestNews, latestGuides, categories } =
+  const { trending, topRated, featured, latestNews, latestGuides, categories, appCount } =
     await getHomepageData();
-  const allApps = await getApps();
-  const topPick = topRated[0] ?? allApps[0] ?? null;
-
-  const appCounts = new Map<string, number>();
-  for (const app of allApps)
-    for (const c of app.categories)
-      appCounts.set(c.slug, (appCounts.get(c.slug) ?? 0) + 1);
+  const topPick = topRated[0] ?? null;
 
   return (
     <>
-      {topPick ? <Hero topPick={topPick} appCount={allApps.length} /> : null}
+      {topPick ? <Hero topPick={topPick} appCount={appCount} /> : null}
 
       {/* Trust strip */}
       <section className="border-y border-border bg-muted/20 py-6">
@@ -118,7 +112,7 @@ export default async function HomePage() {
           <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {categories.map((c, i) => (
               <Reveal key={c.slug} delay={i * 50}>
-                <CategoryCard category={c} count={appCounts.get(c.slug)} />
+                <CategoryCard category={c} count={c.count} />
               </Reveal>
             ))}
           </div>

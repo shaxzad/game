@@ -11,8 +11,10 @@ import type {
   AppRepository,
   CasinoApp,
   Category,
+  CategoryWithCount,
   Guide,
   NewsArticle,
+  Paginated,
   Slug,
 } from "@/types";
 import { apps } from "@/data/apps";
@@ -59,6 +61,22 @@ export const jsonAdapter: AppRepository = {
     return resolve(result);
   },
 
+  async getAppsPage(query = {}): Promise<Paginated<CasinoApp>> {
+    const filtered = sortApps(
+      apps.filter((app) => matchesQuery(app, query)),
+      query.sort,
+    );
+    const total = filtered.length;
+    const page = Math.max(1, Math.floor(query.page ?? 1));
+    const limit = query.limit ?? total;
+    const start = (page - 1) * limit;
+    return resolve({ items: filtered.slice(start, start + limit), total });
+  },
+
+  async getAppsCount(query = {}) {
+    return resolve(apps.filter((app) => matchesQuery(app, query)).length);
+  },
+
   async getAppBySlug(slug: Slug) {
     return resolve(apps.find((a) => a.slug === slug) ?? null);
   },
@@ -87,6 +105,16 @@ export const jsonAdapter: AppRepository = {
 
   async getCategories() {
     return resolve(categories);
+  },
+
+  async getCategoriesWithCounts(): Promise<CategoryWithCount[]> {
+    const counts = new Map<string, number>();
+    for (const app of apps) {
+      for (const c of app.categories) {
+        counts.set(c.slug, (counts.get(c.slug) ?? 0) + 1);
+      }
+    }
+    return resolve(categories.map((c) => ({ ...c, count: counts.get(c.slug) ?? 0 })));
   },
 
   async getCategoryBySlug(slug: Slug) {

@@ -23,7 +23,7 @@ export function ReviewCard({
     <Card className={cn("lift group relative flex flex-col overflow-hidden", className)}>
       <div className="grid-texture relative flex items-center justify-between gap-4 border-b border-border p-6">
         <div className="flex items-center gap-4">
-          <AppLogo seed={app.logoSeed} monogram={app.monogram} size={56} />
+          <AppLogo seed={app.logoSeed} monogram={app.monogram} src={app.logoUrl} alt={app.name} size={56} />
           <div>
             <h3 className="font-display text-lg font-semibold tracking-tight">
               <Link href={`/reviews/${app.slug}`} className="after:absolute after:inset-0">

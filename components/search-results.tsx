@@ -3,29 +3,26 @@
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { FileText, Newspaper, LayoutGrid } from "lucide-react";
-import type { CasinoApp, Guide, NewsArticle } from "@/types";
+import { FileText, Newspaper, LayoutGrid, Loader2 } from "lucide-react";
+import type { Guide, NewsArticle } from "@/types";
 import { AppCard } from "@/components/app-card";
+import { AppGridInfinite } from "@/components/app-grid-infinite";
 import { ArticleCard } from "@/components/article-card";
 import { SearchBar } from "@/components/search-bar";
 import { Reveal } from "@/components/reveal";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useInfiniteApps } from "@/hooks/use-infinite-apps";
 import { cn } from "@/lib/utils";
 
 type Tab = "all" | "apps" | "guides" | "news";
 
+/** Apps shown in the combined "All" tab before offering "see all". */
+const APP_PREVIEW = 6;
+
 interface SearchResultsProps {
-  apps: CasinoApp[];
   guides: Guide[];
   news: NewsArticle[];
-}
-
-function matchApp(app: CasinoApp, q: string) {
-  return `${app.name} ${app.tagline} ${app.operator} ${app.categories
-    .map((c) => c.name)
-    .join(" ")} ${app.features.join(" ")}`
-    .toLowerCase()
-    .includes(q);
 }
 
 function matchArticle(a: Guide | NewsArticle, q: string) {
@@ -35,19 +32,34 @@ function matchArticle(a: Guide | NewsArticle, q: string) {
 }
 
 /**
- * Client search experience. Reads `?q=` from the URL and filters the
- * server-provided datasets across apps, guides and news. All data access still
- * flows through the server page's `lib/api` calls — this only filters.
+ * Client search experience. Apps are searched SERVER-SIDE across the whole
+ * database via `/api/search` (with infinite scroll), so results are never
+ * limited to a pre-loaded page. Guides and news are a small editorial set, so
+ * they stay filtered in-memory from the server-provided lists.
  */
-export function SearchResults({ apps, guides, news }: SearchResultsProps) {
+export function SearchResults({ guides, news }: SearchResultsProps) {
   const params = useSearchParams();
-  const q = (params.get("q") ?? "").trim().toLowerCase();
+  const rawQ = (params.get("q") ?? "").trim();
+  const q = rawQ.toLowerCase();
   const [tab, setTab] = React.useState<Tab>("all");
 
-  const appHits = React.useMemo(
-    () => (q ? apps.filter((a) => matchApp(a, q)) : []),
-    [apps, q]
-  );
+  const appParams = React.useMemo(() => ({ q: rawQ }), [rawQ]);
+  const {
+    items: appHits,
+    total: appsTotal,
+    hasMore,
+    isLoading,
+    isLoadingMore,
+    error,
+    loadMore,
+    reload,
+  } = useInfiniteApps({
+    endpoint: "/api/search",
+    params: appParams,
+    pageSize: 12,
+    enabled: q.length > 0,
+  });
+
   const guideHits = React.useMemo(
     () => (q ? guides.filter((g) => matchArticle(g, q)) : []),
     [guides, q]
@@ -57,11 +69,12 @@ export function SearchResults({ apps, guides, news }: SearchResultsProps) {
     [news, q]
   );
 
-  const total = appHits.length + guideHits.length + newsHits.length;
+  const total = appsTotal + guideHits.length + newsHits.length;
+  const noResults = q.length > 0 && !isLoading && total === 0;
 
   const tabs: { key: Tab; label: string; count: number; icon: React.ElementType }[] = [
     { key: "all", label: "All", count: total, icon: LayoutGrid },
-    { key: "apps", label: "Apps", count: appHits.length, icon: LayoutGrid },
+    { key: "apps", label: "Apps", count: appsTotal, icon: LayoutGrid },
     { key: "guides", label: "Guides", count: guideHits.length, icon: FileText },
     { key: "news", label: "News", count: newsHits.length, icon: Newspaper },
   ];
@@ -80,17 +93,27 @@ export function SearchResults({ apps, guides, news }: SearchResultsProps) {
         <div className="mx-auto mt-12 max-w-md text-center">
           <p className="font-display text-lg font-semibold">Search AceVault</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Find casino apps, reviews, guides and news. Try &ldquo;fast payouts&rdquo;,
-            &ldquo;crypto&rdquo; or &ldquo;wagering&rdquo;.
+            Find casino apps, reviews, guides and news. Try &ldquo;poker&rdquo;,
+            &ldquo;slots&rdquo; or &ldquo;blackjack&rdquo;.
           </p>
         </div>
       ) : (
         <>
           <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-muted-foreground">
-              <span className="font-semibold text-foreground">{total}</span> result
-              {total === 1 ? "" : "s"} for{" "}
-              <span className="font-semibold text-foreground">&ldquo;{q}&rdquo;</span>
+              {isLoading ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Searching for{" "}
+                  <span className="font-semibold text-foreground">&ldquo;{rawQ}&rdquo;</span>
+                </span>
+              ) : (
+                <>
+                  <span className="font-semibold text-foreground tabular-nums">{total}</span>{" "}
+                  result{total === 1 ? "" : "s"} for{" "}
+                  <span className="font-semibold text-foreground">&ldquo;{rawQ}&rdquo;</span>
+                </>
+              )}
             </p>
             <div className="flex flex-wrap gap-1.5">
               {tabs.map((t) => (
@@ -111,11 +134,11 @@ export function SearchResults({ apps, guides, news }: SearchResultsProps) {
             </div>
           </div>
 
-          {total === 0 ? (
+          {noResults ? (
             <div className="mt-10 rounded-2xl border border-dashed border-border p-12 text-center">
               <p className="font-display text-lg font-semibold">No matches</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Nothing matched &ldquo;{q}&rdquo;. Check the spelling or try a broader term.
+                Nothing matched &ldquo;{rawQ}&rdquo;. Check the spelling or try a broader term.
               </p>
               <Link
                 href="/apps"
@@ -126,19 +149,33 @@ export function SearchResults({ apps, guides, news }: SearchResultsProps) {
             </div>
           ) : (
             <div className="mt-10 space-y-12">
-              {showApps && appHits.length > 0 && (
+              {showApps && (appsTotal > 0 || isLoading) && (
                 <section>
                   <div className="mb-5 flex items-center gap-2">
                     <h2 className="font-display text-lg font-semibold">Apps</h2>
-                    <Badge variant="muted">{appHits.length}</Badge>
+                    {appsTotal > 0 && <Badge variant="muted">{appsTotal}</Badge>}
                   </div>
-                  <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                    {appHits.map((app, i) => (
-                      <Reveal key={app.id} delay={i * 50}>
-                        <AppCard app={app} />
-                      </Reveal>
-                    ))}
-                  </div>
+
+                  {tab === "apps" ? (
+                    // Dedicated tab: full infinite scroll across the whole DB.
+                    <AppGridInfinite
+                      items={appHits}
+                      hasMore={hasMore}
+                      isLoading={isLoading}
+                      isLoadingMore={isLoadingMore}
+                      error={error}
+                      onLoadMore={loadMore}
+                      onRetry={reload}
+                    />
+                  ) : (
+                    // Combined "All" tab: show a preview, then link to the tab.
+                    <AppPreview
+                      appHits={appHits}
+                      appsTotal={appsTotal}
+                      isLoading={isLoading}
+                      onSeeAll={() => setTab("apps")}
+                    />
+                  )}
                 </section>
               )}
 
@@ -178,5 +215,45 @@ export function SearchResults({ apps, guides, news }: SearchResultsProps) {
         </>
       )}
     </div>
+  );
+}
+
+function AppPreview({
+  appHits,
+  appsTotal,
+  isLoading,
+  onSeeAll,
+}: {
+  appHits: import("@/types").CasinoApp[];
+  appsTotal: number;
+  isLoading: boolean;
+  onSeeAll: () => void;
+}) {
+  if (isLoading && appHits.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        <Loader2 className="mr-1.5 inline h-3.5 w-3.5 animate-spin" />
+        Searching apps…
+      </p>
+    );
+  }
+  const preview = appHits.slice(0, APP_PREVIEW);
+  return (
+    <>
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {preview.map((app, i) => (
+          <Reveal key={app.id} delay={i * 50}>
+            <AppCard app={app} />
+          </Reveal>
+        ))}
+      </div>
+      {appsTotal > preview.length && (
+        <div className="mt-6 flex justify-center">
+          <Button variant="outline" onClick={onSeeAll}>
+            See all {appsTotal} apps
+          </Button>
+        </div>
+      )}
+    </>
   );
 }

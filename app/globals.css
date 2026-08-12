@@ -145,7 +145,7 @@
 
 @layer utilities {
   .container-tight {
-    @apply mx-auto w-full max-w-5xl px-6;
+    @apply mx-auto w-full max-w-7xl px-6 sm:px-8;
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
