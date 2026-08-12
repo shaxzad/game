@@ -28,7 +28,7 @@ export function AppCard({ app, rank, className }: AppCardProps) {
       )}
     >
       <div className="flex items-start gap-4">
-        <AppLogo seed={app.logoSeed} monogram={app.monogram} size={52} />
+        <AppLogo seed={app.logoSeed} monogram={app.monogram} src={app.logoUrl} alt={app.name} size={52} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {rank != null && (

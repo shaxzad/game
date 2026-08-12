@@ -5,6 +5,10 @@ import { cn } from "@/lib/utils";
 interface AppLogoProps {
   seed: string;
   monogram: string;
+  /** Real logo image URL. When set, the image renders instead of the monogram tile. */
+  src?: string;
+  /** Accessible label for the image; usually the app name. */
+  alt?: string;
   /** pixel size of the square */
   size?: number;
   className?: string;
@@ -12,12 +16,15 @@ interface AppLogoProps {
 }
 
 /**
- * Deterministic, network-free app logo. A seeded gradient tile with the app's
- * monogram and a subtle vault-ring, so every brand looks intentional offline.
+ * App logo tile. Renders the real store icon when `src` is provided, otherwise
+ * a deterministic, network-free seeded gradient with the app's monogram. The
+ * seeded gradient also backs the tile while a real image loads.
  */
 export function AppLogo({
   seed,
   monogram,
+  src,
+  alt = "",
   size = 56,
   className,
   rounded = "rounded-2xl",
@@ -35,18 +42,33 @@ export function AppLogo({
         height: size,
         backgroundImage: `linear-gradient(${g.angle}deg, ${g.from}, ${g.to})`,
       }}
-      aria-hidden
     >
-      <span
-        className="absolute inset-[3px] rounded-[inherit] border border-white/15"
-        style={{ borderStyle: "dashed" }}
-      />
-      <span
-        className="font-display font-bold tracking-tight text-white drop-shadow"
-        style={{ fontSize: size * 0.36 }}
-      >
-        {monogram}
-      </span>
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={alt}
+          width={size}
+          height={size}
+          loading="lazy"
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <>
+          <span
+            className="absolute inset-[3px] rounded-[inherit] border border-white/15"
+            style={{ borderStyle: "dashed" }}
+            aria-hidden
+          />
+          <span
+            className="font-display font-bold tracking-tight text-white drop-shadow"
+            style={{ fontSize: size * 0.36 }}
+            aria-hidden
+          >
+            {monogram}
+          </span>
+        </>
+      )}
     </div>
   );
 }

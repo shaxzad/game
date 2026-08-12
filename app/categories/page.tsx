@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { Metadata } from "next";
-import { getApps, getCategories } from "@/lib/api";
+import { getCategoriesWithCounts } from "@/lib/api";
 import { pageMetadata } from "@/lib/seo";
 import { PageHeader } from "@/components/page-header";
 import { CategoryCard } from "@/components/category-card";
@@ -15,10 +15,7 @@ export const metadata: Metadata = pageMetadata({
 });
 
 export default async function CategoriesPage() {
-  const [categories, apps] = await Promise.all([getCategories(), getApps()]);
-
-  const countFor = (slug: string) =>
-    apps.filter((app) => app.categories.some((c) => c.slug === slug)).length;
+  const categories = await getCategoriesWithCounts();
 
   return (
     <>
@@ -32,7 +29,7 @@ export default async function CategoriesPage() {
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {categories.map((category, i) => (
             <Reveal key={category.slug} delay={i * 50}>
-              <CategoryCard category={category} count={countFor(category.slug)} />
+              <CategoryCard category={category} count={category.count} />
             </Reveal>
           ))}
         </div>

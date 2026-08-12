@@ -16,17 +16,20 @@ import type {
   AppRepository,
   CasinoApp,
   Category,
+  CategoryWithCount,
   Guide,
   NewsArticle,
+  Paginated,
   Slug,
 } from "@/types";
-import { SORT_KEY_TO_FIELD, type AppSortField } from "@/types/api";
+import { SORT_KEY_TO_FIELD, type AppFilters, type AppSortField } from "@/types/api";
 import { guides } from "@/data/guides";
 import { news } from "@/data/news";
 import { sortApps } from "@/utils/sort";
 import { toCategory } from "@/lib/mappers";
 import {
   DEFAULT_LIMIT,
+  countApps,
   deriveCategories,
   findAppByPackageName,
   findApps,
@@ -35,18 +38,24 @@ import {
   listAppPackageNames,
 } from "@/lib/mongo-service";
 
+/** Translate the UI's `AppQuery` into the mongo-service `AppFilters` shape. */
+function toAppFilters(query: AppQuery): AppFilters {
+  const field: AppSortField = query.sort ? SORT_KEY_TO_FIELD[query.sort] : "score";
+  return {
+    search: query.search,
+    category: query.category,
+    // UI trust score is 0–100; the DB `score` is 0–5 (trust = score / 5 * 100).
+    minScore: typeof query.minTrust === "number" ? query.minTrust / 20 : undefined,
+    sort: field,
+    order: field === "name" ? "asc" : "desc",
+    page: query.page,
+    limit: query.limit ?? DEFAULT_LIMIT,
+  };
+}
+
 export const mongoAdapter: AppRepository = {
   async getApps(query: AppQuery = {}): Promise<CasinoApp[]> {
-    const field: AppSortField = query.sort ? SORT_KEY_TO_FIELD[query.sort] : "score";
-    const { items } = await findApps({
-      search: query.search,
-      category: query.category,
-      // UI trust score is 0–100; the DB `score` is 0–5 (trust = score / 5 * 100).
-      minScore: typeof query.minTrust === "number" ? query.minTrust / 20 : undefined,
-      sort: field,
-      order: field === "name" ? "asc" : "desc",
-      limit: query.limit ?? DEFAULT_LIMIT,
-    });
+    const { items } = await findApps(toAppFilters(query));
 
     // Play data is Android-only with no payment metadata; honour these UI
     // filters client-of-DB side so the semantics match the JSON adapter.
@@ -56,6 +65,20 @@ export const mongoAdapter: AppRepository = {
 
     // Re-apply the UI's exact sort semantics over the fetched page.
     return query.sort ? sortApps(result, query.sort) : result;
+  },
+
+  async getAppsPage(query: AppQuery = {}): Promise<Paginated<CasinoApp>> {
+    // Trust the DB's global sort + skip/limit. We deliberately do NOT re-sort
+    // or post-filter here: doing so would only reorder/shrink the current page,
+    // corrupting both ordering across pages and the `total` count that infinite
+    // scroll relies on. (The removed platform/payment filters carried no real
+    // Play data, so nothing is lost.)
+    const { items, total } = await findApps(toAppFilters(query));
+    return { items, total };
+  },
+
+  async getAppsCount(query: AppQuery = {}): Promise<number> {
+    return countApps(toAppFilters(query));
   },
 
   async getAppBySlug(slug: Slug): Promise<CasinoApp | null> {
@@ -73,6 +96,10 @@ export const mongoAdapter: AppRepository = {
   async getCategories(): Promise<Category[]> {
     const categories = await deriveCategories();
     return categories.map(toCategory);
+  },
+
+  async getCategoriesWithCounts(): Promise<CategoryWithCount[]> {
+    return deriveCategories();
   },
 
   async getCategoryBySlug(slug: Slug): Promise<Category | null> {

@@ -10,6 +10,9 @@ import {
   Building2,
   Coins,
   Banknote,
+  Download,
+  Tag,
+  Star,
 } from "lucide-react";
 import type { RatingBreakdown } from "@/types";
 import { getAppBySlug, getAppSlugs, getRelatedApps } from "@/lib/api";
@@ -103,14 +106,37 @@ export default async function ReviewPage({
     faqLd(app),
   ];
 
-  const factRows = [
-    { icon: Building2, label: "Operator", value: app.operator },
+  // "At a glance" facts. Prefer real Google Play metadata (installs, content
+  // rating, version) when the record carries it; fall back to the synthetic
+  // casino facts so the JSON/mock adapter still renders a full sidebar.
+  const factRows: {
+    icon: React.ComponentType<{ className?: string }>;
+    label: string;
+    value: string;
+    href?: string;
+  }[] = [
+    { icon: Building2, label: "Operator", value: app.operator, href: app.developerWebsite },
     { icon: CalendarDays, label: "Established", value: String(app.established) },
-    { icon: Gamepad2, label: "Games", value: `${formatCompact(app.gamesCount)}+` },
-    { icon: Banknote, label: "Min deposit", value: formatCurrency(app.minDeposit) },
-    { icon: Wallet, label: "Payout time", value: app.payoutTime },
-    { icon: Coins, label: "Currencies", value: app.currencies.join(", ") },
   ];
+
+  const hasPlayMeta = Boolean(app.installs || app.contentRating || app.version);
+  if (app.installs) {
+    factRows.push({ icon: Download, label: "Installs", value: app.installs });
+  }
+  if (app.contentRating) {
+    factRows.push({ icon: ShieldCheck, label: "Content rating", value: app.contentRating });
+  }
+  if (app.version) {
+    factRows.push({ icon: Tag, label: "Version", value: app.version });
+  }
+  if (!hasPlayMeta) {
+    factRows.push(
+      { icon: Gamepad2, label: "Games", value: `${formatCompact(app.gamesCount)}+` },
+      { icon: Banknote, label: "Min deposit", value: formatCurrency(app.minDeposit) },
+      { icon: Wallet, label: "Payout time", value: app.payoutTime },
+    );
+  }
+  factRows.push({ icon: Coins, label: "Currencies", value: app.currencies.join(", ") });
 
   return (
     <>
@@ -134,7 +160,7 @@ export default async function ReviewPage({
         <Card className="overflow-hidden p-6 sm:p-8">
           <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-1 items-start gap-5">
-              <AppLogo seed={app.logoSeed} monogram={app.monogram} size={72} />
+              <AppLogo seed={app.logoSeed} monogram={app.monogram} src={app.logoUrl} alt={app.name} size={72} />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="font-display text-2xl font-bold tracking-tight">
@@ -210,35 +236,82 @@ export default async function ReviewPage({
               </section>
             </Reveal>
 
-            {/* Rating breakdown */}
+            {/* Rating distribution (real Google Play histogram) or, for mock
+                data, the editorial pillar scorecard. */}
             <Reveal>
               <section>
-                <SectionHeader
-                  eyebrow="Scorecard"
-                  title="How it rates, pillar by pillar"
-                  description="Every AceVault score is the weighted sum of five tested pillars."
-                />
-                <div className="mt-5 space-y-3">
-                  {BREAKDOWN_LABELS.map(({ key, label }) => {
-                    const val = app.ratingBreakdown[key];
+                {app.ratingHistogram && app.ratingHistogram.length > 0 ? (
+                  (() => {
+                    const bars = app.ratingHistogram!;
+                    const total = bars.reduce((sum, b) => sum + b.count, 0);
+                    const peak = Math.max(...bars.map((b) => b.count), 1);
                     return (
-                      <div key={key} className="flex items-center gap-4">
-                        <span className="w-28 shrink-0 text-sm text-muted-foreground">
-                          {label}
-                        </span>
-                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="h-full rounded-full bg-primary"
-                            style={{ width: `${(val / 5) * 100}%` }}
-                          />
+                      <>
+                        <SectionHeader
+                          eyebrow="Player ratings"
+                          title="How players rate it"
+                          description={`Distribution across ${formatCompact(
+                            total
+                          )} Google Play ratings.`}
+                        />
+                        <div className="mt-5 space-y-3">
+                          {bars.map((bar) => {
+                            const pct = total > 0 ? (bar.count / total) * 100 : 0;
+                            return (
+                              <div key={bar.stars} className="flex items-center gap-4">
+                                <span className="flex w-12 shrink-0 items-center gap-1 text-sm font-medium tabular-nums text-muted-foreground">
+                                  {bar.stars}
+                                  <Star className="h-3.5 w-3.5 fill-gold text-gold" />
+                                </span>
+                                <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className="h-full rounded-full bg-gold"
+                                    style={{ width: `${(bar.count / peak) * 100}%` }}
+                                  />
+                                </div>
+                                <span className="w-24 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
+                                  {formatCompact(bar.count)}
+                                  <span className="ml-1 text-xs text-muted-foreground/70">
+                                    {pct.toFixed(0)}%
+                                  </span>
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
-                        <span className="w-9 shrink-0 text-right text-sm font-semibold tabular-nums">
-                          {val.toFixed(1)}
-                        </span>
-                      </div>
+                      </>
                     );
-                  })}
-                </div>
+                  })()
+                ) : (
+                  <>
+                    <SectionHeader
+                      eyebrow="Scorecard"
+                      title="How it rates, pillar by pillar"
+                      description="Every AceVault score is the weighted sum of five tested pillars."
+                    />
+                    <div className="mt-5 space-y-3">
+                      {BREAKDOWN_LABELS.map(({ key, label }) => {
+                        const val = app.ratingBreakdown[key];
+                        return (
+                          <div key={key} className="flex items-center gap-4">
+                            <span className="w-28 shrink-0 text-sm text-muted-foreground">
+                              {label}
+                            </span>
+                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full rounded-full bg-primary"
+                                style={{ width: `${(val / 5) * 100}%` }}
+                              />
+                            </div>
+                            <span className="w-9 shrink-0 text-right text-sm font-semibold tabular-nums">
+                              {val.toFixed(1)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </section>
             </Reveal>
 
@@ -274,7 +347,7 @@ export default async function ReviewPage({
                 <SectionHeader
                   eyebrow="In the app"
                   title="Screenshots"
-                  description="Representative mockups of the app experience."
+                  description="Screens from the app's Google Play listing."
                 />
                 <div className="mt-5 flex gap-4 overflow-x-auto pb-4 [scrollbar-width:thin]">
                   {app.screenshots.map((shot, i) => (
@@ -348,7 +421,7 @@ export default async function ReviewPage({
                 At a glance
               </h3>
               <dl className="mt-4 space-y-3.5">
-                {factRows.map(({ icon: Icon, label, value }) => (
+                {factRows.map(({ icon: Icon, label, value, href }) => (
                   <div key={label} className="flex items-center gap-3">
                     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border bg-muted/40 text-primary">
                       <Icon className="h-4 w-4" />
@@ -357,7 +430,20 @@ export default async function ReviewPage({
                       <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
                         {label}
                       </dt>
-                      <dd className="truncate text-sm font-medium">{value}</dd>
+                      <dd className="truncate text-sm font-medium">
+                        {href ? (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer nofollow"
+                            className="transition-colors hover:text-primary"
+                          >
+                            {value}
+                          </a>
+                        ) : (
+                          value
+                        )}
+                      </dd>
                     </div>
                   </div>
                 ))}

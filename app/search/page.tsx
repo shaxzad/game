@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { Metadata } from "next";
-import { getApps, getGuides, getNews } from "@/lib/api";
+import { getGuides, getNews } from "@/lib/api";
 import { pageMetadata } from "@/lib/seo";
 import { PageHeader } from "@/components/page-header";
 import { SearchResults } from "@/components/search-results";
@@ -13,11 +13,9 @@ export const metadata: Metadata = pageMetadata({
 });
 
 export default async function SearchPage() {
-  const [apps, guides, news] = await Promise.all([
-    getApps(),
-    getGuides(),
-    getNews(),
-  ]);
+  // Apps are searched live against the whole database inside SearchResults via
+  // /api/search. Guides & news are a small editorial set, loaded once here.
+  const [guides, news] = await Promise.all([getGuides(), getNews()]);
 
   return (
     <>
@@ -28,7 +26,7 @@ export default async function SearchPage() {
         crumbs={[{ name: "Search", href: "/search" }]}
       />
       <React.Suspense fallback={<div className="container-tight py-16" />}>
-        <SearchResults apps={apps} guides={guides} news={news} />
+        <SearchResults guides={guides} news={news} />
       </React.Suspense>
     </>
   );

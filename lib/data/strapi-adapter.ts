@@ -17,8 +17,10 @@ import type {
   AppRepository,
   CasinoApp,
   Category,
+  CategoryWithCount,
   Guide,
   NewsArticle,
+  Paginated,
   Slug,
 } from "@/types";
 
@@ -66,6 +68,12 @@ export const strapiAdapter: AppRepository = {
     void strapiFetch; void _query;
     throw new Error(NOT_IMPLEMENTED);
   },
+  async getAppsPage(_query?: AppQuery): Promise<Paginated<CasinoApp>> {
+    throw new Error(NOT_IMPLEMENTED);
+  },
+  async getAppsCount(_query?: AppQuery): Promise<number> {
+    throw new Error(NOT_IMPLEMENTED);
+  },
   async getAppBySlug(_slug: Slug): Promise<CasinoApp | null> {
     throw new Error(NOT_IMPLEMENTED);
   },
@@ -76,6 +84,9 @@ export const strapiAdapter: AppRepository = {
     throw new Error(NOT_IMPLEMENTED);
   },
   async getCategories(): Promise<Category[]> {
+    throw new Error(NOT_IMPLEMENTED);
+  },
+  async getCategoriesWithCounts(): Promise<CategoryWithCount[]> {
     throw new Error(NOT_IMPLEMENTED);
   },
   async getCategoryBySlug(_slug: Slug): Promise<Category | null> {
