@@ -15,7 +15,7 @@ export default async function HomePage() {
   const { trending, topRated, featured, latestNews, latestGuides, categories } =
     await getHomepageData();
   const allApps = await getApps();
-  const topPick = topRated[0] ?? allApps[0];
+  const topPick = topRated[0] ?? allApps[0] ?? null;
 
   const appCounts = new Map<string, number>();
   for (const app of allApps)
@@ -24,7 +24,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <Hero topPick={topPick} appCount={allApps.length} />
+      {topPick ? <Hero topPick={topPick} appCount={allApps.length} /> : null}
 
       {/* Trust strip */}
       <section className="border-y border-border bg-muted/20 py-6">
