@@ -6,6 +6,9 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   poweredByHeader: false,
+  // Keep the native MongoDB driver out of the bundler so it runs as a plain
+  // Node dependency in Server Components and Route Handlers.
+  serverExternalPackages: ["mongodb"],
 };
 
 export default nextConfig;
