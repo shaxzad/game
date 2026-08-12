@@ -15,7 +15,7 @@ export default async function HomePage() {
   const { trending, topRated, featured, latestNews, latestGuides, categories } =
     await getHomepageData();
   const allApps = await getApps();
-  const topPick = topRated[0] ?? allApps[0];
+  const topPick = topRated[0] ?? allApps[0] ?? null;
 
   const appCounts = new Map<string, number>();
   for (const app of allApps)
@@ -24,7 +24,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <Hero topPick={topPick} appCount={allApps.length} />
+      {topPick ? <Hero topPick={topPick} appCount={allApps.length} /> : null}
 
       {/* Trust strip */}
       <section className="border-y border-border bg-muted/20 py-6">
@@ -74,7 +74,10 @@ export default async function HomePage() {
             eyebrow="By the numbers"
             title="Top rated by trust score"
             description="Ranked on our transparent 0–100 trust model — licensing, payouts, complaints and player protection."
-            action={{ label: "How we rate", href: "/guides/how-we-rate-casino-apps" }}
+            action={{
+              label: "How we rate",
+              href: "/guides/how-we-rate-casino-apps",
+            }}
           />
           <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {topRated.map((app, i) => (
@@ -147,7 +150,9 @@ export default async function HomePage() {
                 <span className="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary">
                   <item.icon className="h-5 w-5" />
                 </span>
-                <h3 className="mt-4 font-display text-lg font-semibold">{item.title}</h3>
+                <h3 className="mt-4 font-display text-lg font-semibold">
+                  {item.title}
+                </h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                   {item.body}
                 </p>
